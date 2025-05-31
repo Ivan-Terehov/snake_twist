@@ -1,27 +1,15 @@
 import pygame as pg
 import pygame_menu
 from abc import ABC, abstractmethod
-import sys
-import os
 from random import choice, randint
 from typing import Dict, Tuple, List, Set, Optional
 import json
 from datetime import datetime, timedelta
 
-
-def resource_path(relative_path):
-    """ Возвращает корректный путь для ресурсов """
-    try:
-        base_path = sys._MEIPASS  # Папка для ресурсов в EXE
-    except AttributeError:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
-
-# region Константы
-SCREEN_SIZE = (840, 480)
+# Константы
+SCREEN_SIZE = (860, 500)
 GRID_SIZE = 20
-AREA_SIZE = (640, 480)
+AREA_SIZE = (660, 500)
 CENTER_POINT = (AREA_SIZE[0] // 2, AREA_SIZE[1] // 2)
 
 COLORS = {
@@ -52,18 +40,16 @@ WALL_COLOR = (100, 100, 100)  # Цвет стен
 WALL_POSITIONS = set()
 
 # Рассчитать позиции стен (вертикальная и горизонтальная по центру, 2 клетки шириной)
-vertical_wall_x = (AREA_SIZE[0] // 2) - GRID_SIZE  # Центр минус одна клетка
-horizontal_wall_y = (AREA_SIZE[1] // 2) - GRID_SIZE  # Центр минус одна клетка
+vertical_wall_x = (AREA_SIZE[0] // 2) - GRID_SIZE // 2
+horizontal_wall_y = (AREA_SIZE[1] // 2) - GRID_SIZE // 2
 
 # Вертикальная стена (две клетки в ширину, полная высота)
 for y in range(0, AREA_SIZE[1], GRID_SIZE):
-    WALL_POSITIONS.add((vertical_wall_x, y))          # Левая колонка
-    WALL_POSITIONS.add((vertical_wall_x + GRID_SIZE, y))  # Правая колонка
+    WALL_POSITIONS.add((vertical_wall_x, y))
 
 # Горизонтальная стена (две клетки в высоту, полная ширина)
 for x in range(0, AREA_SIZE[0], GRID_SIZE):
-    WALL_POSITIONS.add((x, horizontal_wall_y))          # Верхний ряд
-    WALL_POSITIONS.add((x, horizontal_wall_y + GRID_SIZE))  # Нижний ряд
+    WALL_POSITIONS.add((x, horizontal_wall_y))
 
 # Обновить DRAW_POSITIONS чтобы исключить стены
 DRAW_POSITIONS = GRID_POSITIONS - WALL_POSITIONS
@@ -77,11 +63,12 @@ pg.display.set_caption('Изгиб питона')
 
 
 images = {
-    'fon': pg.image.load('fon.png'),
+    'fon': pg.image.load('fon1.png'),
     'frame': pg.image.load('frame.png'),
     'logo': pg.image.load('logo2.png'),
     'logo_menu': pg.image.load('logo.png'),
     'wall': pg.image.load('wall.png'),
+    'apple': pg.image.load('apple.png'),
 }
 
 sounds = {
@@ -145,16 +132,6 @@ class Snake(GameObject):
     def get_head_position(self):
         """Возвращает позицию головы змейки."""
         return self.positions[0]
-
-
-class Wall(GameObject):  # Наследуем от GameObject
-    def __init__(self):
-        super().__init__((0, 0), WALL_COLOR)  # Позиция не важна, так как рисуем множество клеток
-        self.positions = WALL_POSITIONS  # Используем глобальные позиции стен
-
-    def draw(self, surface: pg.Surface) -> None:
-        for pos in self.positions:
-            self.draw_cell(surface, pos)
 
 
 class Fruit(GameObject):
@@ -292,8 +269,8 @@ class GameState:
         # Отрисовка
         screen.fill(COLORS['board'])
         screen.blit(images['fon'], (0, 0))
-        screen.blit(images['frame'], (640, 0))
-        screen.blit(images['logo'], (590, 0))
+        screen.blit(images['frame'], (660, 0))
+        screen.blit(images['logo'], (610, 0))
 
         # Отрисовка бонусов
         for bonus in self.bonuses:
@@ -310,9 +287,8 @@ class GameState:
 
         for i, text in enumerate(interface_data):
             surf = self.font.render(text, 1, (0, 0, 0))
-            screen.blit(surf, (655, 200 + i * 40))
+            screen.blit(surf, (675, 200 + i * 40))
 
-        Wall().draw(screen)
         self.apple.draw(screen)
         self.snake.draw(screen)
         pg.display.update()
