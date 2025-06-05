@@ -1,13 +1,12 @@
 from abc import abstractmethod
 from datetime import datetime, timedelta
 import json
-from random import choice
+from random import choice, random, shuffle
 from typing import Dict, List, Optional, Set, Tuple
 
 
 import pygame as pg
 import pygame_menu
-
 
 # Размеры различных окон.
 SCREEN_SIZE = (860, 500)
@@ -64,7 +63,7 @@ for y in range(0, AREA_SIZE[1], GRID_SIZE):
 for x in range(0, AREA_SIZE[0], GRID_SIZE):
     WALL_POSITIONS.add((x, (AREA_SIZE[1] // 2) - GRID_SIZE // 2))
 
-# Обновить DRAW_POSITIONS чтобы исключить стены
+# Исключает стены из списка доступных ячеек.
 DRAW_POSITIONS = GRID_POSITIONS - WALL_POSITIONS
 
 # Инициализация Pygame
@@ -146,9 +145,12 @@ class Snake(GameObject):
 
     def reset(self) -> None:
         """Сброс состояния змейки в начальное положение."""
-        self.direction = RIGHT
-        self.positions = [(0, 0)]
+        # Первое направление случайное.
+        self.direction = choice((RIGHT, LEFT, UP, DOWN))
+        # Первая позиция случайная.
+        self.positions = [choice(tuple(DRAW_POSITIONS))]
         self.length = 1
+        self.speed = 0.1
 
     def update_direction(self, new_dir: Tuple[int, int]) -> None:
         """
@@ -191,60 +193,39 @@ class Snake(GameObject):
 
 
 class Fruit(GameObject):
-    """
-    Базовый класс для фруктов.
+    """Базовый класс для фруктов"""
 
-    Attributes:
-        active (bool): Флаг активности фрукта (видим/невидим).
-        image (pg.Surface): Изображение фрукта.
-    """
-
-    def __init__(self, positions: Set[Tuple[int, int]], image_name: str):
+    def __init__(self, occupied: Set[Tuple[int, int]], image_name: str):
         """
         Инициализация фрукта.
 
         Args:
-            positions: Множество занятых позиций.
+            occupied: Множество занятых позиций.
             image_name: Ключ изображения в словаре images.
         """
-        super().__init__(self.randomize_position(positions))
-        self.active = True
+        super().__init__()
         self.image = images[image_name]
+        self.randomize_position(occupied)
 
-    @staticmethod
-    def randomize_position(occupied: Set[Tuple[int, int]]) -> Tuple[int, int]:
+    def randomize_position(self, occupied: Set[Tuple[int, int]]) -> None:
         """
         Генерация случайной позиции для фрукта.
 
         Args:
             occupied: Множество занятых позиций.
-
-        Returns:
-            Случайная свободная позиция на игровом поле.
         """
-        return choice(tuple(GRID_POSITIONS - set(occupied)))
-
-    def respawn(self, occupied: Set[Tuple[int, int]]) -> None:
-        """
-        Перемещение фрукта на новую позицию.
-
-        Args:
-            occupied: Множество занятых позиций.
-        """
-        self.position = self.randomize_position(occupied)
-        self.active = True
+        self.position = choice(tuple(GRID_POSITIONS - set(occupied)))
 
     def draw(self) -> None:
         """Отрисовка фрукта, если он активен."""
-        if self.active:
-            self.draw_images(self.image, self.position)
+        self.draw_images(self.image, self.position)
 
 
 class Apple(Fruit):
     """Класс яблоко"""
 
     def __init__(self,
-                 snake_positions: List[Tuple[int, int]] = [(0, 0)]):
+                 snake_positions: List[Tuple[int, int]] = None):
         super().__init__(set(snake_positions) | WALL_POSITIONS, 'apple')
 
 
@@ -253,19 +234,19 @@ class Bonus(Fruit):
     Бонусный фрукт с временным эффектом.
 
     Attributes:
-        fruit_name (str): Название фрукта (для определения эффекта).
         spawn_time (datetime): Время появления бонуса.
         font (pg.font.Font): Шрифт для отображения таймера.
+        fruit_name (str): Название фрукта (для определения эффекта).
+        active_bonus (Optional[Bonus]): Активный бонусный фрукт.
     """
 
+    spawn_time = datetime.now()
+    font = pg.font.Font(None, 24)
+
     def __init__(self, fruit_name: str):
-        # Определяем какое изображение использовать для бонуса
-        # на основе эффекта
         super().__init__(set(), fruit_name)
         self.fruit_name = fruit_name
-        self.active = False
-        self.spawn_time = None
-        self.font = pg.font.Font(None, 24)  # Шрифт для отображения таймера
+        self.active_bonus = None
 
     def activate(self, occupied: Set[Tuple[int, int]]) -> None:
         """
@@ -274,39 +255,27 @@ class Bonus(Fruit):
         Args:
             occupied: Множество занятых позиций.
         """
-        self.respawn(occupied)
-        self.spawn_time = datetime.now()
-
-    def is_expired(self) -> bool:
-        """
-        Проверка истекшего времени жизни бонуса.
-
-        Returns:
-            True, если бонус истёк, иначе False.
-        """
-        if self.spawn_time:
-            return datetime.now() > self.spawn_time + timedelta(seconds=10)
-        return True
+        self.randomize_position(occupied)
+        Bonus.spawn_time = datetime.now()
 
     def draw(self) -> None:
         """Отрисовка бонуса с таймером обратного отсчёта."""
-        if self.active and not self.is_expired():
-            # Отрисовывает базовое изображение фрукта.
-            super().draw()
+        # Отрисовывает базовое изображение фрукта.
+        super().draw()
 
-            # Рассчитывает оставшееся время.
-            elapsed = (datetime.now() - self.spawn_time).seconds
-            remaining = max(0, 10 - elapsed)
+        # Рассчитывает оставшееся время.
+        elapsed = (datetime.now() - Bonus.spawn_time).seconds
+        remaining = max(0, 10 - elapsed)
 
-            # Создает и позиционируем текст с таймером.
-            text = self.font.render(str(remaining), 1, (100, 0, 0))
-            text_rect = text.get_rect(
-                center=(
-                    self.position[0] + GRID_SIZE // 2,
-                    self.position[1] + GRID_SIZE // 2
-                )
+        # Создаёт и позиционируем текст с таймером.
+        text = Bonus.font.render(str(remaining), 1, (100, 0, 0))
+        text_rect = text.get_rect(
+            center=(
+                self.position[0] + GRID_SIZE // 2,
+                self.position[1] + GRID_SIZE // 2
             )
-            screen.blit(text, text_rect)
+        )
+        screen.blit(text, text_rect)
 
 
 class GameState:
@@ -319,13 +288,9 @@ class GameState:
         snake (Snake): Объект змейки.
         apple (Apple): Объект яблока.
         bonuses (List[Bonus]): Список бонусных фруктов.
-        speed (float): Текущая скорость игры.
         score (int): Текущий счет игрока.
-        best_score (int): Лучший счет из таблицы рекордов.
         paused (bool): Флаг паузы игры.
         player_name (str): Имя текущего игрока.
-        last_bonus_spawn (datetime): Время последнего спавна бонуса.
-        active_bonus (Optional[Bonus]): Активный бонусный фрукт.
     """
 
     def __init__(self, player_name: str):
@@ -342,19 +307,14 @@ class GameState:
 
         # Создаёт бонусные фрукты.
         self.bonuses = [
-            Bonus('orange'),  # Уменьшение длины
-            Bonus('pulm'),  # Уменьшение скорости
-            Bonus('cherry')  # Бонус очков
+            Bonus('orange'),  # Уменьшение длины.
+            Bonus('pulm'),  # Уменьшение скорости.
+            Bonus('cherry'),  # Бонус очков.
         ]
 
-        self.speed = 0.1
         self.score = 0
-        self.best_score = 0
         self.paused = False
         self.player_name = player_name
-        self.last_bonus_spawn = datetime.now()
-        self.active_bonus = None
-        self.best_score = self.load_best_score()
 
     def load_best_score(self) -> int:
         """
@@ -368,30 +328,62 @@ class GameState:
 
     def check_bonus_spawn(self):
         """Проверка условий и активация бонусных фруктов."""
-        if datetime.now() - self.last_bonus_spawn > timedelta(seconds=15):
-            # Ищет доступные для активации бонусы.
-            available = [b for b in self.bonuses if not b.active]
-
+        # Спавн бонуса не чаще 15 секунд.
+        if datetime.now() - Bonus.spawn_time < timedelta(seconds=15):
+            return
+        else:
+            # Создаёт список доступных для активации бонусов.
+            available = [b for b in self.bonuses]
+            # Перемешивает список для последующей вставки в цикл.
+            # Множество здесь не подходит потому что оно сохраняет
+            # порядок вставки.
+            shuffle(available)
+            # Проверяет условия для активации
             for bonus in available:
-                # Условия для активации разных типов бонусов..
+                # Условия для активации разных типов бонусов.
                 conditions = {
-                    'orange': self.snake.length > 5,  # Только если длина > 5.
-                    'pulm': self.speed > 1,  # Только если скорость > 1.
-                    'cherry': True  # Всегда доступна.
+                    'orange': self.snake.length > 5,
+                    # Только если длина змейки > 5.
+                    'pulm': self.snake.speed > 1 and random() <= 0.15,
+                    # 15% шанс если скорости скорость змейки > 1.
+                    'cherry': random() < 0.4  # 40% шанс всегда.
                 }
 
-                if conditions[bonus.fruit_name]:
-                    # Активирует бонус на свободной позиции.
+                # Активирует подходящий бонус если он еще не активен.
+                if conditions[bonus.fruit_name] and not bonus.active_bonus:
+                    # Занятые позиции.
                     occupied = set(self.snake.positions) | WALL_POSITIONS
                     bonus.activate(occupied)
-                    self.last_bonus_spawn = datetime.now()
-                    self.active_bonus = bonus
+                    bonus.last_bonus_spawn = datetime.now()
+                    bonus.active_bonus = bonus
                     break
 
-    def handle_bonus_collision(self) -> None:
-        """Обработка столкновений змейки с бонусными фруктами."""
+    def handle_collision(self) -> None:
+        """Обработка столкновений змейки."""
+        # Проверка столкновения с яблоком.
+        if self.snake.get_head_position() == self.apple.position:
+            self.snake.length += 1
+            self.score += 10
+            self.snake.speed += 0.05
+            self.apple.randomize_position(
+                set(self.snake.positions) | WALL_POSITIONS)
+            sounds['ate'].play()
+
+        # Проверка столкновения с телом.
+        if self.snake.get_head_position() in self.snake.positions[1:]:
+            save_score(self.player_name, self.score)
+            self.score = 0
+            self.snake.reset()
+
+        # Проверка столкновения со стенами.
+        if self.snake.get_head_position() in WALL_POSITIONS:
+            save_score(self.player_name, self.score)
+            self.score = 0
+            self.snake.reset()
+
+        # Проверка столкновения с бонусами.
         for bonus in self.bonuses:
-            if (bonus.active and bonus.position
+            if (bonus.active_bonus and bonus.position
                == self.snake.get_head_position()):
                 # Обработка разных типов бонусов.
                 if bonus.fruit_name == 'orange':
@@ -403,20 +395,19 @@ class GameState:
 
                 elif bonus.fruit_name == 'pulm':
                     # Уменьшает скорость (не менее 1).
-                    self.speed = max(1, self.speed - 1)
+                    self.snake.speed = max(1, self.snake.speed - 1)
                     self.score += 30
 
                 elif bonus.fruit_name == 'cherry':
                     # Бонус очков в зависимости от времени активации.
                     time_active = (datetime.now() - bonus.spawn_time).seconds
-                    points = max(0, 150 - 10 * time_active)
+                    points = 150 - 10 * time_active
                     self.score += points
                     self.snake.length += 1
-                    self.speed += 0.1
+                    self.snake.speed += 0.05
 
                 # Деактивирует бонус и проигрывает звук.
-                bonus.active = False
-                self.active_bonus = None
+                bonus.active_bonus = None
                 sounds['ate'].play()
 
     def draw_all(self) -> None:
@@ -429,15 +420,17 @@ class GameState:
 
         # Отрисовка бонусов
         for bonus in self.bonuses:
-            if bonus.active and not bonus.is_expired():
+            if (bonus.active_bonus and datetime.now()
+                    < Bonus.spawn_time + timedelta(seconds=10)):
                 bonus.draw()
 
         # Отображение игровой статистики.
         interface_data = [
-            f"Счёт: {self.score}",
-            f"Рекорд: {self.best_score}",
-            f"Скорость: {round(self.speed, 1)}",
-            f"Игрок: {self.player_name}"
+            f'Счёт: {self.score}',
+            f'Рекорд: {self.load_best_score()}',
+            f'Скорость: {round(self.snake.speed, 1)}',
+            f'Длина: {self.snake.length}',
+            f'Игрок: {self.player_name}',
         ]
         # enumerate - формирует пару счётчик и элемент.
         for i, text in enumerate(interface_data):
@@ -644,6 +637,7 @@ def show_pause_menu(game_state) -> bool:
                 if event.key == pg.K_ESCAPE:
                     pg.quit()
                     raise SystemExit
+
                 return False
 
 
@@ -669,34 +663,12 @@ def main(player_name: str = 'Player 1') -> None:
         # Логика игрового процесса.
         state.check_bonus_spawn()
         state.snake.move()
-        state.handle_bonus_collision()
+        state.handle_collision()
 
-        # Обновление скорости.
-        clock.tick(5 + state.speed)
+        # Обновление скорости отображения.
+        clock.tick(5 + state.snake.speed)
 
-        # Проверка столкновения с яблоком
-        if state.snake.get_head_position() == state.apple.position:
-            state.snake.length += 1
-            state.score += 10
-            state.speed += 0.1
-            state.apple.respawn(set(state.snake.positions) | WALL_POSITIONS)
-            sounds['ate'].play()
-
-        # Проверка столкновения с телом.
-        if state.snake.get_head_position() in state.snake.positions[1:]:
-            save_score(state.player_name, state.score)
-            state.score = 0
-            state.speed = 0.1
-            state.snake.reset()
-
-        # Проверка столкновения со стенами.
-        if state.snake.get_head_position() in WALL_POSITIONS:
-            save_score(state.player_name, state.score)
-            state.score = 0
-            state.speed = 0.1
-            state.snake.reset()
-
-        # Отрисовка игрового состояния.
+        # Отрисовка игровых объектов.
         state.draw_all()
 
 
