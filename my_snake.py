@@ -225,7 +225,7 @@ class Apple(Fruit):
     """Класс яблоко"""
 
     def __init__(self,
-                 snake_positions: List[Tuple[int, int]] = None):
+                 snake_positions: List[Tuple[int, int]] = [(0, 0)]):
         super().__init__(set(snake_positions) | WALL_POSITIONS, 'apple')
 
 
@@ -318,15 +318,15 @@ class GameState:
 
     def load_best_score(self) -> int:
         """
-        Загрузка лучшего счета из таблицы рекордов.
+        Загрузка лучшего счёта из таблицы рекордов.
 
         Returns:
-            Лучший счет или 0, если таблица пуста.
+            Лучший счёт или 0, если таблица пуста.
         """
         scores = load_scores()
         return max(scores, key=lambda x: x['score'])['score'] if scores else 0
 
-    def check_bonus_spawn(self):
+    def bonus_spawn(self):
         """Проверка условий и активация бонусных фруктов."""
         # Спавн бонуса не чаще 15 секунд.
         if datetime.now() - Bonus.spawn_time < timedelta(seconds=15):
@@ -344,7 +344,7 @@ class GameState:
                 conditions = {
                     'orange': self.snake.length > 5,
                     # Только если длина змейки > 5.
-                    'pulm': self.snake.speed > 1 and random() <= 0.15,
+                    'pulm': self.snake.speed > 1 and random() <= 0.35,
                     # 15% шанс если скорости скорость змейки > 1.
                     'cherry': random() < 0.4  # 40% шанс всегда.
                 }
@@ -395,7 +395,7 @@ class GameState:
 
                 elif bonus.fruit_name == 'pulm':
                     # Уменьшает скорость (не менее 1).
-                    self.snake.speed = max(1, self.snake.speed - 1)
+                    self.snake.speed = max(1, self.snake.speed - 0.5)
                     self.score += 30
 
                 elif bonus.fruit_name == 'cherry':
@@ -604,7 +604,7 @@ def game_menu() -> None:
 
 
 def show_pause_menu(game_state) -> bool:
-    """Отображает простое меню паузы с текстом."""
+    """Обрабатывает паузу."""
     # Полупрозрачный оверлей.
     overlay = pg.Surface(SCREEN_SIZE, pg.SRCALPHA)
     overlay.fill((0, 0, 0, 128))  # Чёрный с 50% прозрачностью.
@@ -637,7 +637,6 @@ def show_pause_menu(game_state) -> bool:
                 if event.key == pg.K_ESCAPE:
                     pg.quit()
                     raise SystemExit
-
                 return False
 
 
@@ -660,9 +659,11 @@ def main(player_name: str = 'Player 1') -> None:
             state.paused = False
             continue
 
-        # Логика игрового процесса.
-        state.check_bonus_spawn()
+        # Активирует бонус.
+        state.bonus_spawn()
+        # Обновляет позицию змейки.
         state.snake.move()
+        # Проверяет на столкновение с объектами.
         state.handle_collision()
 
         # Обновление скорости отображения.
