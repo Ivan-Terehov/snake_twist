@@ -107,6 +107,8 @@ images = {
 sounds = {
     'background_music': pg.mixer.Sound("assets/sounds/background_music.mp3"),
     'ate': pg.mixer.Sound("assets/sounds/ate.wav"),
+    'open_menu': pg.mixer.Sound("assets/sounds/open_menu.ogg"),
+    'click_mouse': pg.mixer.Sound("assets/sounds/click_mouse.ogg"),
 }
 
 
@@ -524,6 +526,13 @@ def create_menu_theme(coord: Tuple[int, int]) -> pygame_menu.themes.Theme:
     theme.widget_font_color = (0, 0, 0)
     theme.title_font_color = (0, 0, 0)
     theme.title_font_size = 30
+
+    # Добавляем звуки для виджетов
+    theme.widget_focus_sound = lambda: sounds['open_menu'].play()  # При изменении выбора
+    theme.widget_selection_effect = pygame_menu.widgets.HighlightSelection(
+        margin_x=10,
+        margin_y=5,
+    )
     return theme
 
 
@@ -544,7 +553,14 @@ def update(screen: pg.Surface,
         screen.fill(BOARD_BACKGROUND_COLOR)
         if image:
             screen.blit(image, coord)
-        menu.update(pg.event.get())
+        # Обработка звука при выборе виджета.
+        events = pg.event.get()
+        for event in events:
+            if event.type == pg.KEYDOWN:
+                if event.key in (pg.K_UP, pg.K_DOWN, pg.K_RETURN):
+                    sounds['click_mouse'].play().set_volume(0.6)
+
+        menu.update(events)
         menu.draw(screen)
         pg.display.update()
 
@@ -555,8 +571,9 @@ def name_input() -> None:
     menu = pygame_menu.Menu('Введите имя', 400, 200,
                             theme=create_menu_theme((100, 0)))
     name_input = menu.add.text_input('Имя: ', default='Player 1')
-    menu.add.button('Играть', lambda: main(name_input.get_value()))
-    menu.add.button('Назад', game_menu)
+    # Лямбда обеспечивает отложеный запуск main.
+    menu.add.button('Играть', lambda: [sounds['open_menu'].play(), main(name_input.get_value())])
+    menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
     update(screen, menu)
 
 
@@ -574,7 +591,7 @@ def show_scores() -> None:
             menu.add.label(
                 f"{score['name']}: {score['score']} ({score['date']})")
 
-    menu.add.button('Назад', game_menu)
+    menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
 
     update(screen, menu)
 
@@ -584,7 +601,7 @@ def manual() -> None:
     screen = pg.display.set_mode(SCREEN_MANUAL)
     menu = pygame_menu.Menu('Инструкция', 660, 600,
                             theme=create_menu_theme((230, 0)))
-    btn = menu.add.button('Назад', game_menu)
+    btn = menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
     btn.set_position(500, 500)
 
     update(screen, menu, images['manual'], coord=(0, 0))
@@ -595,9 +612,9 @@ def game_menu() -> None:
     screen = pg.display.set_mode(SCREEN_GAME_MENU)
     menu = pygame_menu.Menu('Меню', 200, 300, position=(25, 240, False),
                             theme=create_menu_theme((55, 0)))
-    menu.add.button('Играть', name_input)
-    menu.add.button('Рекорды', show_scores)
-    menu.add.button('Правила', manual)
+    menu.add.button('Играть', lambda: [sounds['open_menu'].play(),name_input()])
+    menu.add.button('Рекорды', lambda: [sounds['open_menu'].play(), show_scores()])
+    menu.add.button('Правила', lambda: [sounds['open_menu'].play(), manual()])
     menu.add.button('Выход', pygame_menu.events.EXIT)
 
     update(screen, menu, images['logo_menu'], (-70, -20))
