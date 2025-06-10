@@ -1,9 +1,8 @@
-from abc import abstractmethod
-from datetime import datetime, timedelta
+"""Модуль игры 'Змейка' на Pygame."""
 import json
+from abc import ABC, abstractmethod
+from datetime import datetime, timedelta
 from random import choice, random, shuffle
-from typing import Dict, List, Optional, Set, Tuple
-
 
 import pygame as pg
 import pygame_menu
@@ -18,14 +17,8 @@ SCREEN_GAME_MENU = (250, 550)
 GRID_SIZE = 20
 AREA_SIZE = (660, 500)
 
-# Нужны лишь для тестов.
-SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
-GRID_WIDTH = SCREEN_WIDTH // GRID_SIZE
-GRID_HEIGHT = (SCREEN_HEIGHT // GRID_SIZE)
-CENTER_POINT = ((SCREEN_WIDTH // 2), (SCREEN_HEIGHT // 2))
-
-BOARD_BACKGROUND_COLOR = ('#d9e0c1')
-SNAKE_COLOR = ('#ffeb00')
+BOARD_BACKGROUND_COLOR = '#d9e0c1'
+SNAKE_COLOR = '#ffeb00'
 
 # Константы для смены направления движения змейки.
 UP = (0, -1)
@@ -43,15 +36,15 @@ ANGLE = {
 
 #
 TURN_MAP = {
-    pg.K_LEFT: LEFT,
-    pg.K_RIGHT: RIGHT,
-    pg.K_UP: UP,
-    pg.K_DOWN: DOWN,
+    (pg.K_UP, LEFT): UP,
+    (pg.K_UP, RIGHT): UP,
+    (pg.K_DOWN, RIGHT): DOWN,
+    (pg.K_DOWN, LEFT): DOWN,
+    (pg.K_LEFT, UP): LEFT,
+    (pg.K_LEFT, DOWN): LEFT,
+    (pg.K_RIGHT, UP): RIGHT,
+    (pg.K_RIGHT, DOWN): RIGHT
 }
-
-# Все доступные для игры ячейки.
-GRID_POSITIONS = {(x, y) for x in range(0, AREA_SIZE[0], GRID_SIZE)
-                  for y in range(0, AREA_SIZE[1], GRID_SIZE)}
 
 WALL_POSITIONS = set()
 
@@ -63,12 +56,23 @@ for y in range(0, AREA_SIZE[1], GRID_SIZE):
 for x in range(0, AREA_SIZE[0], GRID_SIZE):
     WALL_POSITIONS.add((x, (AREA_SIZE[1] // 2) - GRID_SIZE // 2))
 
+# Все доступные для игры ячейки.
+GRID_POSITIONS = {(x, y) for x in range(0, AREA_SIZE[0], GRID_SIZE)
+                  for y in range(0, AREA_SIZE[1], GRID_SIZE)}
+
 # Исключает стены из списка доступных ячеек.
 DRAW_POSITIONS = GRID_POSITIONS - WALL_POSITIONS
 
+START_POSITION = [choice(tuple(DRAW_POSITIONS))]
+
+# Константы фруктов.
+FRUIT_APPLE = 'apple'
+FRUIT_CHERRY = 'cherry'
+FRUIT_PLUM = 'pulm'
+FRUIT_ORANGE = 'orange'
+
 # Инициализация Pygame
 pg.init()
-pg.mixer.init()
 
 # Основное игровое окно.
 screen = pg.display.set_mode(SCREEN_SIZE)
@@ -112,21 +116,15 @@ sounds = {
 }
 
 
-class GameObject:
+class GameObject(ABC):
     """Базовый класс для игровых объектов."""
-
-    def __init__(self, position: Tuple[int, int] = (0, 0),
-                 body_color: Tuple[int, int, int] = None):
-        self.position = position
-        self.body_color = body_color
 
     @abstractmethod
     def draw(self) -> None:
         """Отрисовка объекта на поверхности"""
-        pass
 
     def draw_images(self, image: pg.Surface,
-                    position: Tuple[int, int]) -> None:
+                    position: tuple[int, int]) -> None:
         """Отрисовка изображения объекта на заданной позиции."""
         screen.blit(image, position)
 
@@ -139,55 +137,60 @@ class Snake(GameObject):
         direction (Tuple[int, int]): Текущее направление движения.
         positions (List[Tuple[int, int]]): Список позиций сегментов тела.
         length (int): Длина змейки.
+        speed (float): Скорость змейки.
     """
 
-    def __init__(self, body_color: Tuple[int, int, int] = SNAKE_COLOR):
-        super().__init__(body_color=body_color)
+    def __init__(self):
+        super().__init__()
+        self.direction = None
         self.reset()
 
     def reset(self) -> None:
-        """Сброс состояния змейки в начальное положение."""
-        # Первое направление случайное.
+        """
+        Сброс состояния змейки в начальное положение.
+
+        Args:
+            direction: Направление движения змейки.
+        """
+        # Первое направление RIGHT. После reset случайное.
         self.direction = choice((RIGHT, LEFT, UP, DOWN))
-        # Первая позиция случайная.
+        # Случайная позиция змейки.
         self.positions = [choice(tuple(DRAW_POSITIONS))]
         self.length = 1
         self.speed = 0.1
 
-    def update_direction(self, new_dir: Tuple[int, int]) -> None:
+    def update_direction(self, new_dir: tuple[int, int]) -> None:
         """
         Обновление направления движения змейки.
 
         Args:
             new_dir: Новое направление движения (UP, DOWN, LEFT, RIGHT).
         """
-        # Проверка на движение в противоположном направлении.
-        if ((new_dir[0] + self.direction[0], new_dir[1] + self.direction[1])
-                != (0, 0)):
-            self.direction = new_dir
+        self.direction = new_dir
 
     def move(self) -> None:
         """Перемещение змейки в текущем направлении."""
-        x, y = self.get_head_position()
+        x_local, y_local = self.get_head_position()
         dx, dy = self.direction
-        new_x = x + dx * GRID_SIZE
-        new_y = y + dy * GRID_SIZE
 
         # Обновляет позиции с учётом границ игрового поля.
-        self.positions.insert(0, (new_x % AREA_SIZE[0], new_y % AREA_SIZE[1]))
+        self.positions.insert(0, (
+            (x_local + dx * GRID_SIZE) % AREA_SIZE[0],
+            (y_local + dy * GRID_SIZE) % AREA_SIZE[1])
+        )
         if len(self.positions) > self.length:
             self.positions.pop()
 
     def draw(self) -> None:
         """Отрисовка змейки на экране."""
-        # Рисует тело.
-        for pos in self.positions[1:]:
-            self.draw_images(images['snake_body'], pos)
-
         # Рисует и поворачивает голову в зависимости от направления.
         rotated_head = pg.transform.rotate(images['snake_head'],
                                            ANGLE[self.direction])
         self.draw_images(rotated_head, self.get_head_position())
+
+        # Рисует тело.
+        for pos in self.positions[1:]:
+            self.draw_images(images['snake_body'], pos)
 
     def get_head_position(self):
         """Возвращает позицию головы змейки."""
@@ -197,7 +200,7 @@ class Snake(GameObject):
 class Fruit(GameObject):
     """Базовый класс для фруктов"""
 
-    def __init__(self, occupied: Set[Tuple[int, int]], image_name: str):
+    def __init__(self, occupied: set[tuple[int, int]], image_name: str):
         """
         Инициализация фрукта.
 
@@ -209,7 +212,7 @@ class Fruit(GameObject):
         self.image = images[image_name]
         self.randomize_position(occupied)
 
-    def randomize_position(self, occupied: Set[Tuple[int, int]]) -> None:
+    def randomize_position(self, occupied: set[tuple[int, int]]) -> None:
         """
         Генерация случайной позиции для фрукта.
 
@@ -226,9 +229,8 @@ class Fruit(GameObject):
 class Apple(Fruit):
     """Класс яблоко"""
 
-    def __init__(self,
-                 snake_positions: List[Tuple[int, int]] = [(0, 0)]):
-        super().__init__(set(snake_positions) | WALL_POSITIONS, 'apple')
+    def __init__(self, snake_positions: list[tuple[int, int]]):
+        super().__init__(set(snake_positions) | WALL_POSITIONS, FRUIT_APPLE)
 
 
 class Bonus(Fruit):
@@ -250,7 +252,7 @@ class Bonus(Fruit):
         self.fruit_name = fruit_name
         self.active_bonus = None
 
-    def activate(self, occupied: Set[Tuple[int, int]]) -> None:
+    def activate(self, occupied: set[tuple[int, int]]) -> None:
         """
         Активация бонуса на игровом поле.
 
@@ -293,6 +295,7 @@ class GameState:
         score (int): Текущий счет игрока.
         paused (bool): Флаг паузы игры.
         player_name (str): Имя текущего игрока.
+        best_score (int): Лучший счет.
     """
 
     def __init__(self, player_name: str):
@@ -309,56 +312,43 @@ class GameState:
 
         # Создаёт бонусные фрукты.
         self.bonuses = [
-            Bonus('orange'),  # Уменьшение длины.
-            Bonus('pulm'),  # Уменьшение скорости.
-            Bonus('cherry'),  # Бонус очков.
+            Bonus(FRUIT_ORANGE),  # Уменьшение длины.
+            Bonus(FRUIT_PLUM),  # Уменьшение скорости.
+            Bonus(FRUIT_CHERRY),  # Бонус очков.
         ]
 
         self.score = 0
         self.paused = False
         self.player_name = player_name
-
-    def load_best_score(self) -> int:
-        """
-        Загрузка лучшего счёта из таблицы рекордов.
-
-        Returns:
-            Лучший счёт или 0, если таблица пуста.
-        """
-        scores = load_scores()
-        return max(scores, key=lambda x: x['score'])['score'] if scores else 0
+        self.best_score = load_best_score()
 
     def bonus_spawn(self):
         """Проверка условий и активация бонусных фруктов."""
         # Спавн бонуса не чаще 15 секунд.
         if datetime.now() - Bonus.spawn_time < timedelta(seconds=15):
             return
-        else:
-            # Создаёт список доступных для активации бонусов.
-            available = [b for b in self.bonuses]
-            # Перемешивает список для последующей вставки в цикл.
-            # Множество здесь не подходит потому что оно сохраняет
-            # порядок вставки.
-            shuffle(available)
-            # Проверяет условия для активации
-            for bonus in available:
-                # Условия для активации разных типов бонусов.
-                conditions = {
-                    'orange': self.snake.length > 5,
-                    # Только если длина змейки > 5.
-                    'pulm': self.snake.speed > 1 and random() <= 0.35,
-                    # 15% шанс если скорости скорость змейки > 1.
-                    'cherry': random() < 0.4  # 40% шанс всегда.
-                }
+        # Перемешивает список для последующей вставки в цикл.
+        # Множество здесь не подходит потому что оно сохраняет
+        # порядок вставки.
+        shuffle(self.bonuses)
+        # Проверяет условия для активации
+        for bonus in self.bonuses:
+            # Условия для активации разных типов бонусов.
+            conditions = {
+                FRUIT_ORANGE: self.snake.length > 5 and random() <= 0.01,
+                # 1% шанс только если длина змейки > 5.
+                FRUIT_PLUM: self.snake.speed > 1 and random() <= 0.01,
+                # 1% шанс если скорости скорость змейки > 1.
+                FRUIT_CHERRY: random() < 0.05  # 5% шанс всегда.
+            }
 
-                # Активирует подходящий бонус если он еще не активен.
-                if conditions[bonus.fruit_name] and not bonus.active_bonus:
-                    # Занятые позиции.
-                    occupied = set(self.snake.positions) | WALL_POSITIONS
-                    bonus.activate(occupied)
-                    bonus.last_bonus_spawn = datetime.now()
-                    bonus.active_bonus = bonus
-                    break
+            # Активирует подходящий бонус если он еще не активен.
+            if conditions[bonus.fruit_name] and not bonus.active_bonus:
+                # Занятые позиции.
+                occupied = set(self.snake.positions) | WALL_POSITIONS
+                bonus.activate(occupied)
+                bonus.active_bonus = bonus
+                break
 
     def handle_collision(self) -> None:
         """Обработка столкновений змейки."""
@@ -388,19 +378,19 @@ class GameState:
             if (bonus.active_bonus and bonus.position
                == self.snake.get_head_position()):
                 # Обработка разных типов бонусов.
-                if bonus.fruit_name == 'orange':
+                if bonus.fruit_name == FRUIT_ORANGE:
                     # Уменьшает длину змейки (не менее 5 сегментов).
                     self.snake.length = max(5, self.snake.length - 1)
                     self.snake.positions \
                         = self.snake.positions[:self.snake.length]
                     self.score += 30
 
-                elif bonus.fruit_name == 'pulm':
-                    # Уменьшает скорость (не менее 1).
+                elif bonus.fruit_name == FRUIT_PLUM:
+                    # Уменьшает скорость на 0.5 (не менее 1).
                     self.snake.speed = max(1, self.snake.speed - 0.5)
                     self.score += 30
 
-                elif bonus.fruit_name == 'cherry':
+                elif bonus.fruit_name == FRUIT_CHERRY:
                     # Бонус очков в зависимости от времени активации.
                     time_active = (datetime.now() - bonus.spawn_time).seconds
                     points = 150 - 10 * time_active
@@ -429,7 +419,7 @@ class GameState:
         # Отображение игровой статистики.
         interface_data = [
             f'Счёт: {self.score}',
-            f'Рекорд: {self.load_best_score()}',
+            f'Рекорд: {self.best_score}',
             f'Скорость: {round(self.snake.speed, 1)}',
             f'Длина: {self.snake.length}',
             f'Игрок: {self.player_name}',
@@ -455,7 +445,7 @@ def save_score(name: str, score: int) -> None:
         score: Достигнутый счет.
     """
     try:
-        with open('scores.json', 'r') as f:
+        with open('scores.json', 'r', encoding='utf-8') as f:
             scores = json.load(f)
     except FileNotFoundError:
         scores = []
@@ -466,13 +456,13 @@ def save_score(name: str, score: int) -> None:
         'date': datetime.now().strftime('%Y-%m-%d')
     })
 
-    with open('scores.json', 'w') as f:
+    with open('scores.json', 'w', encoding='utf-8') as f:
         # Сохраняет только 5 лучших результатов.
         json.dump(sorted(scores,
                          key=lambda x: x['score'], reverse=True)[:5], f)
 
 
-def load_scores() -> List[Dict]:
+def load_scores() -> list[dict]:
     """
     Загружает таблицу рекордов из файла.
 
@@ -484,6 +474,17 @@ def load_scores() -> List[Dict]:
             return json.load(f)
     except FileNotFoundError:
         return {}
+
+
+def load_best_score() -> int:
+    """
+    Загрузка лучшего счёта из таблицы рекордов.
+
+    Returns:
+        Лучший счёт или 0, если таблица пуста.
+    """
+    scores = load_scores()
+    return max(scores, key=lambda x: x['score'])['score'] if scores else 0
 
 
 def handle_keys(snake: Snake, game_state: GameState) -> bool:
@@ -499,16 +500,19 @@ def handle_keys(snake: Snake, game_state: GameState) -> bool:
             raise SystemExit
         if event.type == pg.KEYDOWN:
             if event.key == pg.K_p:
-                return not game_state.paused  # Переключаем паузу
+                return not game_state.paused  # Переключает паузу.
             elif event.key == pg.K_ESCAPE:
                 pg.quit()
                 raise SystemExit
-            elif not game_state.paused and event.key in TURN_MAP:
-                snake.update_direction(TURN_MAP[event.key])
+            elif (not game_state.paused
+                  and (event.key, snake.direction) in TURN_MAP):
+                snake.update_direction(TURN_MAP.get(
+                    (event.key, snake.direction))
+                )
     return game_state.paused
 
 
-def create_menu_theme(coord: Tuple[int, int]) -> pygame_menu.themes.Theme:
+def create_menu_theme(coord: tuple[int, int]) -> pygame_menu.themes.Theme:
     """
     Создаёт тему для меню.
 
@@ -526,25 +530,18 @@ def create_menu_theme(coord: Tuple[int, int]) -> pygame_menu.themes.Theme:
     theme.widget_font_color = (0, 0, 0)
     theme.title_font_color = (0, 0, 0)
     theme.title_font_size = 30
-
-    # Добавляем звуки для виджетов
-    theme.widget_focus_sound = lambda: sounds['open_menu'].play()  # При изменении выбора
-    theme.widget_selection_effect = pygame_menu.widgets.HighlightSelection(
-        margin_x=10,
-        margin_y=5,
-    )
     return theme
 
 
-def update(screen: pg.Surface,
+def update(menu_surface: pg.Surface,
            menu: pygame_menu.Menu,
            image: pg.Surface = None,
-           coord: Optional[Tuple[int, int]] = None) -> None:
+           coord: tuple[int, int] | None = None) -> None:
     """
     Обновляет и отображает меню.
 
     Args:
-        screen: Поверхность для отрисовки.
+        menu_surface: Поверхность для отрисовки.
         menu: Объект меню.
         image: Изображения.
         coord: Координаты для отрисовки фонового изображения.
@@ -561,25 +558,27 @@ def update(screen: pg.Surface,
                     sounds['click_mouse'].play().set_volume(0.6)
 
         menu.update(events)
-        menu.draw(screen)
+        menu.draw(menu_surface)
         pg.display.update()
 
 
 def name_input() -> None:
     """Окно ввода имени игрока."""
-    screen = pg.display.set_mode(SCREEN_NAME_INPUT)
+    name_input_screen = pg.display.set_mode(SCREEN_NAME_INPUT)
     menu = pygame_menu.Menu('Введите имя', 400, 200,
                             theme=create_menu_theme((100, 0)))
-    name_input = menu.add.text_input('Имя: ', default='Player 1')
+    name_widget = menu.add.text_input('Имя: ', default='Player 1')
     # Лямбда обеспечивает отложеный запуск main.
-    menu.add.button('Играть', lambda: [sounds['open_menu'].play(), main(name_input.get_value())])
-    menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
-    update(screen, menu)
+    menu.add.button('Играть', lambda: [sounds['open_menu'].play(),
+                                       main(name_widget.get_value())])
+    menu.add.button('Назад', lambda: [sounds['open_menu'].play(),
+                                      game_menu()])
+    update(name_input_screen, menu)
 
 
 def show_scores() -> None:
     """Отображает таблицу рекордов."""
-    screen = pg.display.set_mode(SCREEN_SHOW_SCORES)
+    show_scores_screen = pg.display.set_mode(SCREEN_SHOW_SCORES)
     menu = pygame_menu.Menu('Рекорды', 600, 400,
                             theme=create_menu_theme((230, 0)))
 
@@ -591,33 +590,38 @@ def show_scores() -> None:
             menu.add.label(
                 f"{score['name']}: {score['score']} ({score['date']})")
 
-    menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
+    menu.add.button('Назад', lambda: [sounds['open_menu'].play(),
+                                      game_menu()])
 
-    update(screen, menu)
+    update(show_scores_screen, menu)
 
 
 def manual() -> None:
     """Отображает инструкцию к игре."""
-    screen = pg.display.set_mode(SCREEN_MANUAL)
+    manual_screen = pg.display.set_mode(SCREEN_MANUAL)
     menu = pygame_menu.Menu('Инструкция', 660, 600,
                             theme=create_menu_theme((230, 0)))
-    btn = menu.add.button('Назад', lambda: [sounds['open_menu'].play(), game_menu()])
+    btn = menu.add.button('Назад', lambda: [sounds['open_menu'].play(),
+                                            game_menu()])
     btn.set_position(500, 500)
 
-    update(screen, menu, images['manual'], coord=(0, 0))
+    update(manual_screen, menu, images['manual'], coord=(0, 0))
 
 
 def game_menu() -> None:
     """Главное меню игры."""
-    screen = pg.display.set_mode(SCREEN_GAME_MENU)
+    game_menu_screen = pg.display.set_mode(SCREEN_GAME_MENU)
     menu = pygame_menu.Menu('Меню', 200, 300, position=(25, 240, False),
                             theme=create_menu_theme((55, 0)))
-    menu.add.button('Играть', lambda: [sounds['open_menu'].play(),name_input()])
-    menu.add.button('Рекорды', lambda: [sounds['open_menu'].play(), show_scores()])
-    menu.add.button('Правила', lambda: [sounds['open_menu'].play(), manual()])
+    menu.add.button('Играть', lambda: [sounds['open_menu'].play(),
+                                       name_input()])
+    menu.add.button('Рекорды', lambda: [sounds['open_menu'].play(),
+                                        show_scores()])
+    menu.add.button('Правила', lambda: [sounds['open_menu'].play(),
+                                        manual()])
     menu.add.button('Выход', pygame_menu.events.EXIT)
 
-    update(screen, menu, images['logo_menu'], (-70, -20))
+    update(game_menu_screen, menu, images['logo_menu'], (-70, -20))
 
 
 def show_pause_menu(game_state) -> bool:
